@@ -1,9 +1,9 @@
 {
     "_desc_num_parties": "Number of parties involved in the MPC computation. Should match compiled application protocol.",
-    "num_parties": 2,
+    "num_parties": 4,
 
     "_desc_party_ips": "IP addresses of each party, ordered by party number",
-    "party_ips": ["127.0.0.1", "127.0.0.1"],
+    "party_ips": ["127.0.0.1", "127.0.0.1", "127.0.0.1", "127.0.0.1"],
 
     "_desc_party_users": "Usernames for each party, ordered by party number. Can be used by scripts to SSH into machines if necessary to start piranha processes",
     "party_users": [],
@@ -15,7 +15,7 @@
     "unit_test_only": false,
 
     "_desc_debug_print": "Show debug output",
-    "debug_print": false,
+    "debug_print": true,
 
     "_desc_debug_overflow": "Test for overflow and print related debug output. Breaks security by revealing intermediary values.",
     "debug_overflow": false,
