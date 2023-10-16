@@ -342,9 +342,15 @@ void train(NeuralNetwork<T, Share> *net, NeuralNetConfig *config, std::string ru
 
             if (piranha_config["eval_train_stats"]) {
                 double fw_bw_ms = toplevel_profiler.get_elapsed_all();
+                double fw_ms = toplevel_profiler.get_elapsed("fw-pass");
+
                 printf("training iteration (ms),%f\n", fw_bw_ms);
+                printf("forward iteration (ms),%f\n", fw_ms);
+                printf("backward iteration (ms),%f\n", fw_bw_ms - fw_ms);
+
                 printf("training TX comm (MB),%f\n", comm_profiler.get_comm_tx_bytes() / 1024.0 / 1024.0);
                 printf("training RX comm (MB),%f\n", comm_profiler.get_comm_rx_bytes() / 1024.0 / 1024.0);
+                comm_profiler.dump_comm_rounds();
 
                 double comm_ms = comm_profiler.get_elapsed("comm-time");
                 printf("training comm (ms),%f\n", comm_ms);
