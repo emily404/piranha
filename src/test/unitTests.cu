@@ -3,6 +3,9 @@
 
 int runTests(int argc, char **argv) {
     testing::InitGoogleTest(&argc, argv);
+    // testing::GTEST_FLAG(filter) = "FPCTest.Mult";
+    // testing::GTEST_FLAG(filter) = "*MatMul";
+    testing::GTEST_FLAG(filter) = "FuncTest/2.RELU";
     return RUN_ALL_TESTS();
 }
 
