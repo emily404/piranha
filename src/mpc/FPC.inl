@@ -21,6 +21,7 @@
 #include "Precompute.h"
 #include "../util/functors.h"
 #include "../util/Profiler.h"
+#include "../util/util.cuh"
 
 extern Precompute PrecomputeObject;
 extern Profiler comm_profiler;
@@ -1208,22 +1209,41 @@ void reshareFPC(DeviceData<T, I> &z, DeviceData<T, I2> &zPrime, int partyI, int 
             rndMask += z;
         }
 
+        // prepare hash
+        std::vector<T> rndMask_Host(rndMask.size());
+        copyToHost(rndMask, rndMask_Host, false);
+        std::string s = vector_sha256(rndMask_Host);
+
         if (partyNum == partyI) {
-	    comm_profiler.start();
+	        comm_profiler.start();
             rndMask.transmit(partyG);
             rndMask.join();
             comm_profiler.accumulate("comm-time");
             *out.getShare(shareH) += rndMask;
+            // update sendHash 
+            std::string sendHash = getSendHash(partyI, partyJ);
+            std::string updated = str_sha256(sendHash + s);
+            updateSendHash(partyI, partyJ, updated);
+
         } else if (partyNum == partyJ) {
             *out.getShare(shareH) += rndMask;
+            // update verifyHash 
+            std::string verifyHash = getVerifyHash(partyI, partyJ);
+            std::string updated = str_sha256(verifyHash + s);
+            updateVerifyHash(partyI, partyJ, updated);
+
         } else if (partyNum == partyG) {
-	    comm_profiler.start();
+    	    comm_profiler.start();
             rndMask.receive(partyI);
             rndMask.join();
             comm_profiler.accumulate("comm-time");
             *out.getShare(shareH) += rndMask;
+            // update receiveHash 
+            std::string receiveHash = getReceiveHash(partyI, partyJ);
+            std::string updated = str_sha256(receiveHash + s);
+            updateReceiveHash(partyI, partyJ, updated);
         }
-        //std::cout << "Hello? " << std::endl;
+
     }
 
 

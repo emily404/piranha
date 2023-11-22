@@ -16,6 +16,9 @@
 #include "../mpc/FPC.h"
 #include "../mpc/OPC.h"
 
+#include <openssl/sha.h>
+using namespace std;
+
 #define ASSERT_EPSILON 1e-3
 #define RELATIVE_ASSERT_EPSILON 1e-2
 
@@ -24,6 +27,32 @@ extern int partyNum;
 void log_print(std::string str);
 void error(std::string str);
 void printMemUsage();
+
+std::string str_sha256(const std::string &str);
+std::string getSendHash(int partyI, int partyJ);
+std::string getReceiveHash(int partyI, int partyJ);
+std::string getVerifyHash(int partyI, int partyJ);
+void updateSendHash(int partyI, int partyJ, std::string updated);
+void updateReceiveHash(int partyI, int partyJ, std::string updated);
+void updateVerifyHash(int partyI, int partyJ, std::string updated);
+void printHash();
+
+template<typename T>
+std::string vector_sha256(std::vector<T> &data) {
+
+    unsigned char hash[SHA256_DIGEST_LENGTH];
+    SHA256_CTX sha256;
+    SHA256_Init(&sha256);
+    SHA256_Update(&sha256, data.data(), data.size());
+    SHA256_Final(hash, &sha256);
+    std::stringstream ss;
+    for(int i = 0; i < SHA256_DIGEST_LENGTH; i++)
+    {
+        ss << hex << setw(2) << setfill('0') << (int)hash[i];    
+    }
+    
+    return ss.str();
+}
 
 template<typename T>
 void toFixed(std::vector<double> &v, std::vector<T> &r) {
@@ -49,6 +78,24 @@ void fromFixed(std::vector<T> &v, std::vector<double> &r) {
 
     for (int i = 0; i < v.size(); i++) {
         r[i] = ((double) ((S) v[i])) / (1 << FLOAT_PRECISION);
+    }
+}
+
+template<typename T, typename I>
+void copyToHost(DeviceData<T, I> &device_data, std::vector<T> &host_data, bool convertSigned=true) {
+    typedef typename std::make_signed<T>::type S;
+
+    if (convertSigned) {
+        std::vector<S> host_temp(device_data.size());
+        thrust::copy(device_data.begin(), device_data.end(), host_temp.begin());
+
+        std::copy(host_temp.begin(), host_temp.end(), host_data.begin());
+
+    } else {
+        std::vector<T> host_temp(device_data.size());
+        thrust::copy(device_data.begin(), device_data.end(), host_temp.begin());
+
+        std::copy(host_temp.begin(), host_temp.end(), host_data.begin());
     }
 }
 
@@ -86,6 +133,7 @@ void printDeviceData(DeviceData<T, I> &data, const char *name, bool convertFixed
 
     std::cout << name << ":" << std::endl;
     for (int i = 0; i < host_data.size(); i++) {
+    // for (int i = 0; i < 15; i++) {
         printf("%f ", host_data[i]);
     }
     std::cout << std::endl;

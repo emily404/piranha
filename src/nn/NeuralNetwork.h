@@ -26,6 +26,8 @@ class NeuralNetwork {
         void _backward_delta(Share<T> &labels, Share<T> &deltas);
         void _backward_pass(Share<T> &deltas);
 
+        void jmp_verify(int partyi, int partyj, int partyk, int partyl);
+
 //    private:
 
         void _relu_grad(Share<T> &labels, Share<T> &deltas);

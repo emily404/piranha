@@ -17,6 +17,15 @@
 #include "../gpu/DeviceData.h"
 #include "../globals.h"
 
+template<typename T>
+std::string vector_sha256(std::vector<T> &data);
+std::string str_sha256(const std::string &str);
+std::string getSendHash(int partyI, int partyJ);
+std::string getReceiveHash(int partyI, int partyJ);
+std::string getVerifyHash(int partyI, int partyJ);
+void updateSendHash(int partyI, int partyJ, std::string updated);
+void updateReceiveHash(int partyI, int partyJ, std::string updated);
+void updateVerifyHash(int partyI, int partyJ, std::string updated);
 
 template <typename T, typename I>
 class FPCBase {
@@ -49,7 +58,7 @@ class FPCBase {
         static int partyG(int partyI, int partyJ);
         static int partyH(int partyI, int partyJ);
         static int shareH(int partyI, int partyJ, int partyNum);
-
+        
         FPCBase<T, I> &operator+=(const T rhs);
         FPCBase<T, I> &operator-=(const T rhs);
         FPCBase<T, I> &operator*=(const T rhs);

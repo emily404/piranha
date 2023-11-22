@@ -180,6 +180,15 @@ int main(int argc, char** argv) {
         train(&net, &nn_config, piranha_config["run_name"], train_data_file, train_label_file, test_data_file, test_label_file, lr_schedule);
     }
 
+    enum Party { PARTY_A, PARTY_B, PARTY_C, PARTY_D };
+    net.jmp_verify(PARTY_A, PARTY_B, PARTY_C, PARTY_D);
+    net.jmp_verify(PARTY_A, PARTY_C, PARTY_B, PARTY_D);
+    net.jmp_verify(PARTY_A, PARTY_D, PARTY_B, PARTY_C);
+    net.jmp_verify(PARTY_B, PARTY_C, PARTY_D, PARTY_A);
+    net.jmp_verify(PARTY_B, PARTY_D, PARTY_C, PARTY_A);
+    net.jmp_verify(PARTY_C, PARTY_D, PARTY_A, PARTY_B);
+    // printHash();
+
     //delete aes_indep;
     //delete aes_next;
     //delete aes_prev;

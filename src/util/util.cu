@@ -2,6 +2,8 @@
 #include "util.cuh"
 
 #include <iostream>
+#include <openssl/sha.h>
+using namespace std;
 
 extern size_t db_bytes;
 extern size_t db_max_bytes;
@@ -61,3 +63,83 @@ __device__ uint64_t atomicAdd(uint64_t *address, uint64_t val) {
     return old;
 }
 
+// hash matrix
+std::string sendHash[3][3] = {};
+std::string verifyHash[3][3] = {};
+std::string receiveHash[3][3] = {};
+
+std::string getSendHash(int partyI, int partyJ)
+{
+    return sendHash[partyI][partyJ-1];
+}
+
+std::string getVerifyHash(int partyI, int partyJ)
+{
+    return verifyHash[partyI][partyJ-1];
+}
+
+std::string getReceiveHash(int partyI, int partyJ)
+{
+    return receiveHash[partyI][partyJ-1];
+}
+
+void updateSendHash(int partyI, int partyJ, std::string updated)
+{
+    sendHash[partyI][partyJ-1] = updated;
+}
+
+void updateVerifyHash(int partyI, int partyJ, std::string updated)
+{
+    verifyHash[partyI][partyJ-1] = updated;
+}
+
+void updateReceiveHash(int partyI, int partyJ, std::string updated)
+{
+    receiveHash[partyI][partyJ-1] = updated;
+}
+
+void printHash() {
+    int rows = 3;
+    int cols = 3;
+
+    std::cout << "sendHash" << std::endl;
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            std::cout << "[" << sendHash[i][j] << "] ";
+        }
+        std::cout << std::endl;
+    }
+
+    std::cout << "verifyHash" << std::endl;
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            std::cout << "[" << verifyHash[i][j] << "] ";
+        }
+        std::cout << std::endl;
+    }
+
+    std::cout << "receiveHash" << std::endl;
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            std::cout << "[" << receiveHash[i][j] << "] ";
+        }
+        std::cout << std::endl;
+    }
+
+}
+
+std::string str_sha256(const std::string &str)
+{
+    unsigned char hash[SHA256_DIGEST_LENGTH];
+    SHA256_CTX sha256;
+    SHA256_Init(&sha256);
+    SHA256_Update(&sha256, str.c_str(), str.size());
+    SHA256_Final(hash, &sha256);
+    std::stringstream ss;
+    for(int i = 0; i < SHA256_DIGEST_LENGTH; i++)
+    {
+        ss << hex << setw(2) << setfill('0') << (int)hash[i];    
+    }
+    
+    return ss.str();
+}

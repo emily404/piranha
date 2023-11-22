@@ -466,6 +466,313 @@ void NeuralNetwork<T, Share>::_backward_pass(Share<T> &deltas) {
     }
 }
 
+std::vector<uint32_t> sha256StringToUint32Vector(const std::string& sha256Hash) {
+    std::vector<uint32_t> result;
+    std::istringstream stream(sha256Hash);
+
+    // Process the SHA-256 hash string in chunks of 8 characters (32 bits)
+    while (stream.good()) {
+        std::string chunk;
+        stream >> std::setw(8) >> chunk; // Read 8 characters at a time
+
+        try {
+            uint32_t intValue = std::stoul(chunk, nullptr, 16);
+            result.push_back(intValue);
+        } catch (const std::out_of_range& ex) {
+            // Handle out-of-range exception if necessary
+            std::cerr << "Out of range exception caught: " << ex.what() << std::endl;
+        } catch (const std::invalid_argument& ex) {
+            // Handle invalid argument exception if necessary
+            std::cerr << "Invalid argument exception caught: " << ex.what() << std::endl;
+        }
+    }
+
+    return result;
+}
+
+template<typename T, template<typename, typename...> typename Share>
+void NeuralNetwork<T, Share>::jmp_verify(const int partyi, const int partyj, const int partyk, const int partyl) {
+    
+    size_t size = 8; // SHA-256 output 256 bit which is 8 uint32_t
+    DeviceData<uint32_t> hashs(size); 
+    hashs.zero();
+    
+    DeviceData<uint8_t> bi(1), bj(1), bk(1), bl(1), CG(2), temp(1);
+    std::vector<uint8_t> host_bi(1), host_bj(1), host_bk(1), host_bl(1), host_CG(2);
+    bi.zero(); bj.zero(); bk.zero(); bl.zero(); CG.zero(); temp.fill(1);
+    uint8_t b;
+    host_CG[0] = host_CG[1] = 4; // 4 represent no party
+
+    if (partyNum == partyi) // sender in sending phase
+    {
+        // 1. receive bit from party k
+        bi.receive(partyk);
+        bi.join();
+        // 2. exchange b with party j, party l
+        // bk[0] = bi[0];
+        bk.zero();
+        bk += bi;
+        comm_profiler.start();
+        bk.transmit(partyj);
+        bi.transmit(partyl);
+        bj.receive(partyj);
+        bl.receive(partyl);
+        bk.join();
+        bi.join();
+        bj.join();
+        bl.join();
+        comm_profiler.accumulate("comm-time");
+
+        // 3. compute a majority bit
+        copyToHost(bi, host_bi, false);
+        copyToHost(bj, host_bj, false);
+        copyToHost(bl, host_bl, false);
+        b = ((host_bi[0] + host_bj[0] + host_bl[0]) >=2 );
+        // 4. if b=1, send hashs to party l
+        if (b == 1)
+        {
+            std::string sendHash = getSendHash(partyi, partyj);
+            std::vector<uint32_t> hashs_host = sha256StringToUint32Vector(sendHash);
+            thrust::copy(hashs_host.begin(), hashs_host.end(), hashs.begin());
+
+            comm_profiler.start();
+            hashs.transmit(partyl);
+            hashs.join();
+            
+            // 5. receive CG from party l
+            CG.receive(partyl);
+            CG.join();
+            comm_profiler.accumulate("comm-time");
+            printDeviceData(CG, "CG", false);
+        }
+    }
+    else if (partyNum == partyj) // sender in verifying phase
+    {
+        comm_profiler.start();
+        // 1. send hj to party k
+        std::string verifyHash = getVerifyHash(partyi, partyj);
+        std::vector<uint32_t> hashs_j_host = sha256StringToUint32Vector(verifyHash);
+        thrust::copy(hashs_j_host.begin(), hashs_j_host.end(), hashs.begin());
+        
+        hashs.transmit(partyk);
+        hashs.join();
+        
+        // 2. receive bit from party k
+        bj.receive(partyk);
+        bj.join();
+        // 3. exchange b with party i, party l
+        // bk[0] = bj[0];
+        bk.zero();
+        bk += bj;
+        bk.transmit(partyi);
+        bj.transmit(partyl);
+        bi.receive(partyi);
+        bl.receive(partyl);
+        bk.join();
+        bj.join();
+        bi.join();
+        bl.join();
+        comm_profiler.accumulate("comm-time");
+        // 4. compute a majority bit
+        copyToHost(bi, host_bi, false);
+        copyToHost(bj, host_bj, false);
+        copyToHost(bl, host_bl, false);
+        b = ((host_bi[0] + host_bj[0] + host_bl[0]) >=2 );
+        // 5. if b=1, send hashs to party l
+        if (b == 1)
+        {
+            comm_profiler.start();
+            hashs.transmit(partyl);
+            hashs.join();
+
+            // 5. receive CG from party l
+            CG.receive(partyl);
+            CG.join();
+            comm_profiler.accumulate("comm-time");
+            printDeviceData(CG, "CG", false);
+        }
+    }
+    else if (partyNum == partyk) // receiver
+    {
+        DeviceData<uint32_t> hashs_j(size);
+        std::vector<uint32_t> host_hashs_j(size);
+        std::string receiveHash = getReceiveHash(partyi, partyj);
+        std::vector<uint32_t> host_hashs = sha256StringToUint32Vector(receiveHash);
+
+        // 1. receive hj from party j
+        comm_profiler.start();
+        hashs_j.receive(partyj);
+        hashs_j.join();
+        comm_profiler.accumulate("comm-time");
+        copyToHost(hashs_j, host_hashs_j, false);
+        
+        // 2. check the consistency of hj and hashs
+        for(auto i = 0; i < size; i++)
+        {
+            if (host_hashs_j[i] != host_hashs[i])
+            {
+                bi.zero(); bj.zero(); bk.zero(); bl.zero();
+                bi += temp; bj += temp; bk += temp; bl += temp;
+                break;
+            }
+        }
+        // 3. send bit to party party i, party j, party l
+        comm_profiler.start();
+        bi.transmit(partyi);
+        bj.transmit(partyj);
+        bl.transmit(partyl);
+        bi.join();
+        bj.join();
+        bl.join();
+        comm_profiler.accumulate("comm-time");
+
+        // 4. if b=1, send hashs to party l
+        copyToHost(bi, host_bi, false);
+        if (host_bi[0] == 1)
+        {
+            // concat hashs and hashs_j in a new vector
+            DeviceData<uint32_t> hashs_l(2*size);
+            thrust::copy(host_hashs.begin(), host_hashs.end(), hashs_l.begin());
+            thrust::copy(host_hashs_j.begin(), host_hashs_j.end(), hashs_l.begin() + size);
+
+            comm_profiler.start();
+            hashs_l.transmit(partyl);
+            hashs_l.join();
+    
+            // 5. receive CG from party l
+            CG.receive(partyl);
+            CG.join();
+            comm_profiler.accumulate("comm-time");
+            printDeviceData(CG, "CG", false);
+        }
+    }
+    else if (partyNum == partyl) // candidates of TTP
+    {
+        // 1. receive bit from party k
+        comm_profiler.start();
+        bl.receive(partyk);
+        bl.join();
+        // 2. exchange b with party i, party j
+        // bk[0] = bl[0];
+        bk.zero();
+        bk += bl;
+        bk.transmit(partyi);
+        bl.transmit(partyj);
+        bi.receive(partyi);
+        bj.receive(partyj);
+        bk.join();
+        bl.join();
+        bi.join();
+        bj.join();
+        comm_profiler.accumulate("comm-time");
+        // 3. compute a majority bit
+        copyToHost(bi, host_bi, false);
+        copyToHost(bj, host_bj, false);
+        copyToHost(bl, host_bl, false);
+        b = ((host_bi[0] + host_bj[0] + host_bl[0]) >=2 );
+        // 4. if b=1, receive hashs from party i, party j, party k
+        if (b == 1)
+        {
+            DeviceData<uint32_t> hashs_i(size), hashs_j(size), hashs_k(2*size);
+            hashs_i.zero(); hashs_j.zero(); hashs_k.zero();
+            std::vector<uint32_t> host_hashs_i(size);
+            std::vector<uint32_t> host_hashs_j(size);
+            std::vector<uint32_t> host_hashs_k(2*size);
+            comm_profiler.start();
+            hashs_i.receive(partyi);
+            hashs_j.receive(partyj);
+            hashs_k.receive(partyk);
+            hashs_i.join();
+            hashs_j.join();
+            hashs_k.join();
+            comm_profiler.accumulate("comm-time");
+            copyToHost(hashs_i, host_hashs_i, false);        
+            copyToHost(hashs_j, host_hashs_j, false);        
+            copyToHost(hashs_k, host_hashs_k, false);        
+            
+            // check the consistency of hashs_i, hashs_j, hashs_ik, hashs_jk
+            uint8_t check_bit0, check_bit1, check_bit2, check_bit3;
+            check_bit0 = check_bit1 = check_bit2 = check_bit3 = 1;
+            // 4.1 check the consistency of hashs_ik and hashs_jk 
+            for(auto i = 0; i < size; i++)
+            {
+                if (host_hashs_k[i] != host_hashs_k[i+size])
+                {
+                    check_bit0 = 0;
+                    break;
+                }
+            }
+            if (check_bit0) // if equal, output CG={partyk}
+            {
+                host_CG[0] = partyk;
+            }
+            else // else
+            {
+                // 4.2 check the consistency of hashs_i and hashs_ik
+                // 4.3 check the consistency of hashs_j and hashs_jk
+                for(auto i = 0; i < size; i++)
+                {
+                    if (host_hashs_i[i] != host_hashs_k[i])
+                    {
+                        check_bit1 = 0;
+                    }
+                    if (host_hashs_j[i] != host_hashs_k[i+size])
+                    {
+                        check_bit2 = 0;
+                    }
+                    if (check_bit1 == 0 && check_bit2 == 0)
+                    {
+                        break;
+                    }
+                }
+                if (check_bit1 == 0 && check_bit2 == 0) // if both not equal, output CG={partyk}
+                {
+                    host_CG[0] = partyk;
+                }
+                else if (check_bit1 == 1 && check_bit2 == 1) // if both equal, output CG={partyi,partyj}
+                {
+                    host_CG[0] = partyi;
+                    host_CG[1] = partyj;
+                }
+                else // otherwise, check the consistency of hashs_i and hashs_j
+                {
+                    for(auto i = 0; i < size; i++)
+                    {
+                        if (host_hashs_i[i] != host_hashs_j[i])
+                        {
+                            check_bit3 = 0;
+                            break;
+                        }
+                    }
+                    host_CG[0] = check_bit2 == 1 ? partyi : partyj;
+                    host_CG[1] = check_bit3 == 1 ? partyk : 4;
+                }
+            }
+
+            // copy several CG to send in parallel
+            DeviceData<uint8_t> CG_i(2), CG_j(2), CG_k(2);
+            thrust::copy(host_CG.begin(), host_CG.end(), CG_i.begin());
+            thrust::copy(host_CG.begin(), host_CG.end(), CG_j.begin());
+            thrust::copy(host_CG.begin(), host_CG.end(), CG_k.begin());
+            printDeviceData(CG_i, "CG_i", false);
+
+            // 5. send CG to other parties
+            comm_profiler.start();
+            CG_i.transmit(partyi);
+            CG_j.transmit(partyj);
+            CG_k.transmit(partyk);
+            CG_i.join();
+            CG_j.join();
+            CG_k.join();
+            comm_profiler.accumulate("comm-time");
+        }
+    }
+    else
+    {
+        assert(false && "jmp_verify called on incorrect party");
+    }
+}
+
 /*
 template<typename T, template<typename, typename...> typename Share>
 void NeuralNetwork<T, Share>::printLoss(std::vector<double> &labels, bool cross_entropy) {
